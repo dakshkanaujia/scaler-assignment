@@ -29,7 +29,10 @@ async def startup_event():
     chroma_db_dir = "./chroma_db/"
     if not os.path.exists(chroma_db_dir):
         print("ChromaDB not found. Running ingestion...")
-        ingest_data()
+        try:
+            ingest_data()
+        except Exception as e:
+            print(f"Warning: Ingestion failed, RAG context will be unavailable: {e}")
     else:
         print("ChromaDB found. Skipping ingestion.")
 
