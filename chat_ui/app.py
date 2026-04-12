@@ -18,7 +18,16 @@ st.set_page_config(page_title=f"{os.getenv('OWNER_NAME', 'Daksh')} — AI Person
 st.markdown("""
     <style>
     .stChatMessage { border-radius: 15px; }
-    .stSidebar { background-color: #f0f2f6; }
+    .stSidebar { 
+        background-color: #1E1E1E; 
+        color: #FFFFFF;
+    }
+    .stSidebar [data-testid="stMarkdownContainer"] p {
+        color: #FFFFFF !important;
+    }
+    .stSidebar h1, .stSidebar h2, .stSidebar h3 {
+        color: #FFFFFF !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
