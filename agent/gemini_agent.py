@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool
 from dotenv import load_dotenv
@@ -39,11 +42,14 @@ async def chat(user_message: str, history: list) -> str:
     try:
         retriever = get_retriever()
         if retriever:
-            docs = retriever.get_relevant_documents(user_message)
+            docs = retriever.invoke(user_message)
             context = "\n".join([doc.page_content for doc in docs])
+            logger.info(f"RAG retrieved {len(docs)} docs, context length: {len(context)} chars")
         else:
+            logger.warning("RAG retriever returned None — chroma_db may be missing or failed to load")
             context = "No additional context available."
-    except Exception:
+    except Exception as e:
+        logger.error(f"RAG retrieval failed: {e}", exc_info=True)
         context = "No additional context available."
 
     # 2. Build system prompt
