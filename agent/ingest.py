@@ -45,7 +45,7 @@ def ingest_data():
     chunks = text_splitter.split_documents(documents)
 
     # Embeddings - Lightweight Gemini option
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
     # Persist vector store
     # Idempotent: Overwrite existing collection
