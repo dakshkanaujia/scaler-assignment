@@ -5,112 +5,104 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-async def check_availability():
-    """Checks for available time slots in the next 7 days."""
+CAL_BASE = "https://api.cal.com/v2"
+SLOTS_VERSION = "2024-09-04"
+BOOKINGS_VERSION = "2024-08-13"
+
+
+def _headers(version: str) -> dict:
     api_key = os.getenv("CALCOM_API_KEY")
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "cal-api-version": version,
+        "Content-Type": "application/json",
+    }
+
+
+async def check_availability():
+    """Checks for available time slots in the next 7 days using Cal.com v2 API."""
     event_type_id = os.getenv("CALCOM_EVENT_TYPE_ID")
-    
-    if not api_key or not event_type_id:
+
+    if not os.getenv("CALCOM_API_KEY") or not event_type_id:
         return "Cal.com API Key or Event Type ID not configured."
 
-    today = datetime.datetime.now()
-    date_from = today.strftime("%Y-%m-%d")
-    date_to = (today + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-    
-    url = f"https://api.cal.com/v1/slots?apiKey={api_key}&eventTypeId={event_type_id}&dateFrom={date_from}&dateTo={date_to}"
-    
+    now = datetime.datetime.utcnow()
+    start = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = (now + datetime.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    url = f"{CAL_BASE}/slots"
+    params = {
+        "eventTypeId": event_type_id,
+        "start": start,
+        "end": end,
+        "timeZone": "UTC",
+    }
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+            response = await client.get(url, params=params, headers=_headers(SLOTS_VERSION))
+            print(f"[check_availability] status={response.status_code} body={response.text[:500]}")
             response.raise_for_status()
             data = response.json()
-            
-            slots = data.get("slots", {})
+
+            # v2 response: {"data": {"2026-04-13": [{"start": "..."}], ...}}
+            slots_by_date = data.get("data", {})
             available_slots = []
-            
-            for date, day_slots in slots.items():
+
+            for date, day_slots in slots_by_date.items():
                 for slot in day_slots:
                     if len(available_slots) < 5:
-                        available_slots.append(slot.get("time"))
+                        available_slots.append(slot.get("start"))
                     else:
                         break
                 if len(available_slots) >= 5:
                     break
-            
+
             if not available_slots:
                 return "No available slots found for the next 7 days."
-            
+
             return "Available slots:\n" + "\n".join(available_slots)
-            
+
     except Exception as e:
         return f"Error checking availability: {str(e)}"
 
+
 async def book_slot(email: str, iso_time: str):
-    """Books a meeting slot for a specific time."""
-    api_key = os.getenv("CALCOM_API_KEY")
+    """Books a meeting slot using Cal.com v2 API."""
     event_type_id = os.getenv("CALCOM_EVENT_TYPE_ID")
-    
-    if not api_key or not event_type_id:
+
+    if not os.getenv("CALCOM_API_KEY") or not event_type_id:
         return "Cal.com API Key or Event Type ID not configured."
 
-    # Simple name extraction from email
-    name = email.split("@")[0].capitalize()
-    
-    url = f"https://api.cal.com/v1/bookings?apiKey={api_key}"
+    name = email.split("@")[0].replace(".", " ").replace("_", " ").title()
+
+    url = f"{CAL_BASE}/bookings"
     payload = {
         "eventTypeId": int(event_type_id),
         "start": iso_time,
-        "responses": {
+        "attendee": {
             "name": name,
             "email": email,
-            "location": {"value": "integrations:google:meet", "optionValue": ""}
+            "timeZone": "UTC",
         },
-        "timeZone": "UTC",
-        "language": "en",
-        "metadata": {}
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers=_headers(BOOKINGS_VERSION))
+            print(f"[book_slot] status={response.status_code} body={response.text[:500]}")
             response.raise_for_status()
             data = response.json()
-            
-            booking = data.get("booking", {})
-            booking_id = booking.get("id")
-            short_url = booking.get("shortUrl")
-            
-            return f"Booking confirmed! ID: {booking_id}. Meeting link: {short_url}"
-            
+
+            # v2 response: {"status":"success","data":{"uid":"...","title":"...","start":"..."}}
+            booking = data.get("data", {})
+            uid = booking.get("uid")
+            title = booking.get("title", "Meeting")
+            start = booking.get("start", iso_time)
+
+            return f"Booking confirmed! '{title}' at {start}. Booking ID: {uid}"
+
+    except httpx.HTTPStatusError as e:
+        return f"Error booking slot: {e.response.status_code} - {e.response.text}"
     except Exception as e:
         return f"Error booking slot: {str(e)}"
-
-# Gemini Function Declarations
-TOOLS = [
-    {
-        "name": "check_availability",
-        "description": "Check for available meeting slots in the next 7 days.",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "book_slot",
-        "description": "Book a meeting slot at a specific ISO 8601 time.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "description": "The email address of the person booking the meeting."
-                },
-                "iso_time": {
-                    "type": "string",
-                    "description": "The ISO 8601 formatted start time of the meeting (e.g., 2024-04-12T10:00:00Z)."
-                }
-            },
-            "required": ["email", "iso_time"]
-        }
-    }
-]
