@@ -1,29 +1,49 @@
 import os
 import google.generativeai as genai
+from google.generativeai.types import FunctionDeclaration, Tool
 from dotenv import load_dotenv
 from agent.retriever import get_retriever
-from agent.calendar_tools import check_availability, book_slot, TOOLS
+from agent.calendar_tools import check_availability, book_slot
 
 load_dotenv()
 
 # Configure GenAI
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Mapping tool names to functions for execution
-AVAILABLE_TOOLS = {
-    "check_availability": check_availability,
-    "book_slot": book_slot
-}
+# Define tools using the proper Gemini SDK format
+check_availability_fn = FunctionDeclaration(
+    name="check_availability",
+    description="Check for available meeting slots in the next 7 days.",
+    parameters={"type": "object", "properties": {}}
+)
+
+book_slot_fn = FunctionDeclaration(
+    name="book_slot",
+    description="Book a meeting slot at a specific ISO 8601 time.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "email": {"type": "string", "description": "The email address of the person booking the meeting."},
+            "iso_time": {"type": "string", "description": "The ISO 8601 formatted start time (e.g. 2024-04-12T10:00:00Z)."}
+        },
+        "required": ["email", "iso_time"]
+    }
+)
+
+TOOLS = [Tool(function_declarations=[check_availability_fn, book_slot_fn])]
 
 async def chat(user_message: str, history: list) -> str:
     owner_name = os.getenv("OWNER_NAME", "Daksh")
-    
+
     # 1. Get RAG context
-    retriever = get_retriever()
-    if retriever:
-        docs = retriever.get_relevant_documents(user_message)
-        context = "\n".join([doc.page_content for doc in docs])
-    else:
+    try:
+        retriever = get_retriever()
+        if retriever:
+            docs = retriever.get_relevant_documents(user_message)
+            context = "\n".join([doc.page_content for doc in docs])
+        else:
+            context = "No additional context available."
+    except Exception:
         context = "No additional context available."
 
     # 2. Build system prompt
@@ -36,48 +56,38 @@ async def chat(user_message: str, history: list) -> str:
         tools=TOOLS
     )
 
-    # 4. Prepare Message with context
+    # 4. Prepare message with context
     full_message = f"Context:\n{context}\n\nUser Message: {user_message}"
-    
-    # 5. Start Chat/Process
-    # Note: We manage history manually or via SDK. The requirements ask for 'history: list' as input.
-    # Converting history to GenAI format if needed, but for now we process the current message.
-    
-    chat_session = model.start_chat(history=[]) # Could populate from history input
-    
+
+    chat_session = model.start_chat(history=[])
     response = chat_session.send_message(full_message)
-    
-    # 6. Handle Function Calls
-    while response.candidates[0].content.parts[0].function_call:
-        fc = response.candidates[0].content.parts[0].function_call
+
+    # 5. Handle Function Calls in a loop
+    for _ in range(5):  # Max 5 tool rounds
+        part = response.candidates[0].content.parts[0]
+        if not hasattr(part, 'function_call') or not part.function_call.name:
+            break
+
+        fc = part.function_call
         tool_name = fc.name
-        tool_args = fc.args
-        
-        if tool_name in AVAILABLE_TOOLS:
-            # Execute tool
-            if tool_name == "book_slot":
-                result = await book_slot(email=tool_args['email'], iso_time=tool_args['iso_time'])
-            else:
-                result = await check_availability()
-            
-            # Send result back to model
-            response = chat_session.send_message(
-                genai.types.Content(
-                    parts=[genai.types.Part.from_function_response(
-                        name=tool_name,
-                        response={'result': result}
-                    )]
-                )
-            )
+        tool_args = dict(fc.args)
+
+        if tool_name == "book_slot":
+            result = await book_slot(email=tool_args.get('email'), iso_time=tool_args.get('iso_time'))
+        elif tool_name == "check_availability":
+            result = await check_availability()
         else:
             break
 
-    return response.text
+        response = chat_session.send_message(
+            genai.protos.Content(
+                parts=[genai.protos.Part(
+                    function_response=genai.protos.FunctionResponse(
+                        name=tool_name,
+                        response={"result": result}
+                    )
+                )]
+            )
+        )
 
-if __name__ == "__main__":
-    # Test script (requires API key)
-    import asyncio
-    async def test():
-        res = await chat("What is Daksh's experience?", [])
-        print(f"AI: {res}")
-    # asyncio.run(test())
+    return response.text
