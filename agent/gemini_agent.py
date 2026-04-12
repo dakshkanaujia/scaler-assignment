@@ -72,10 +72,18 @@ Guidelines:
     # 4. Prepare message with context
     full_message = f"Context:\n{context}\n\nUser Message: {user_message}"
 
-    chat_session = model.start_chat(history=[])
+    # 5. Transform history for Gemini SDK
+    # Gemini expects: [{'role': 'user', 'parts': ['...']}, {'role': 'model', 'parts': ['...']}]
+    transformed_history = []
+    for msg in history:
+        role = "model" if msg["role"] == "assistant" else "user"
+        content = msg["content"]
+        transformed_history.append({"role": role, "parts": [content]})
+
+    chat_session = model.start_chat(history=transformed_history)
     response = chat_session.send_message(full_message)
 
-    # 5. Handle Function Calls in a loop
+    # 6. Handle Function Calls in a loop
     for _ in range(5):  # Max 5 tool rounds
         # Safely check if this response contains a function call
         parts = response.candidates[0].content.parts

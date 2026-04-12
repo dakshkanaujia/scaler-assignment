@@ -37,8 +37,17 @@ with st.sidebar:
     st.write(f"**Name**: {os.getenv('OWNER_NAME', 'Daksh')}")
     st.write(f"**Role**: {os.getenv('ROLE', 'AI Developer')}")
     st.divider()
+    
     st.write("### 📅 Book a Call")
     st.info("Want to chat? Ask me to check my availability or book a slot!")
+    
+    if st.button("🗑️ Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
+    
+    st.divider()
+    st.write("### ℹ️ About")
+    st.write("This is an AI representation designed to answer questions about projects, experience, and handle scheduling.")
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -49,10 +58,32 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# Suggested Questions
+if not st.session_state.messages:
+    st.write("### 👋 Welcome! How can I help you today?")
+    st.write("Here are some things you can ask me:")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("What is your experience?"):
+            st.session_state.suggested_query = "What is your experience?"
+        if st.button("Tell me about your projects"):
+            st.session_state.suggested_query = "Tell me about your projects"
+    with col2:
+        if st.button("How can I book a meeting?"):
+            st.session_state.suggested_query = "How can I book a meeting?"
+        if st.button("Check availability for tomorrow"):
+            st.session_state.suggested_query = "Check availability for tomorrow"
+
 # React to user input
-if prompt := st.chat_input("What is your experience?"):
+prompt = st.chat_input("Ask me something...")
+if "suggested_query" in st.session_state:
+    prompt = st.session_state.pop("suggested_query")
+
+if prompt:
     # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
+    # Store previous messages for context
+    context_msgs = list(st.session_state.messages)
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -61,27 +92,28 @@ if prompt := st.chat_input("What is your experience?"):
         message_placeholder = st.empty()
         full_response = ""
         
-        # Call the agent directly
         try:
-            # Since chat is async, we use asyncio.run or manage the loop
-            # Streamlit runs in a script-like fashion, so we use a helper
+            # Create a localized event loop for the async call
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            response_text = loop.run_until_complete(chat(prompt, st.session_state.messages[:-1]))
+            response_text = loop.run_until_complete(chat(prompt, context_msgs))
             
-            # Simulate streaming for character-by-character effect if SDK doesn't stream directly
+            # Simulate streaming
             import time
-            for chunk in response_text.split():
-                full_response += chunk + " "
-                time.sleep(0.05)
-                # Add a blinking cursor to simulate typing
+            words = response_text.split()
+            for i in range(len(words)):
+                full_response = " ".join(words[:i+1])
                 message_placeholder.markdown(full_response + "▌")
+                time.sleep(0.02) # Faster streaming
             
-            message_placeholder.markdown(full_response)
+            message_placeholder.markdown(response_text)
+            full_response = response_text # Use the original text for history
         except Exception as e:
-            st.error(f"Error: {str(e)}")
-            full_response = "Sorry, I encountered an error processing your request."
+            error_msg = f"Sorry, I encountered an error: {str(e)}"
+            st.error(error_msg)
+            full_response = error_msg
             message_placeholder.markdown(full_response)
 
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.rerun() # Ensure UI refreshes with the new message
