@@ -1,6 +1,11 @@
 import streamlit as st
 import asyncio
 import os
+import sys
+
+# Ensure root directory is in path for imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from dotenv import load_dotenv
 from agent.gemini_agent import chat
 
