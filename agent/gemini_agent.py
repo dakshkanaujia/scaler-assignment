@@ -70,11 +70,12 @@ async def chat(user_message: str, history: list) -> str:
 
     # 5. Handle Function Calls in a loop
     for _ in range(5):  # Max 5 tool rounds
-        part = response.candidates[0].content.parts[0]
-        if not hasattr(part, 'function_call') or not part.function_call.name:
+        # Safely check if this response contains a function call
+        parts = response.candidates[0].content.parts
+        if not parts or not hasattr(parts[0], 'function_call') or not parts[0].function_call.name:
             break
 
-        fc = part.function_call
+        fc = parts[0].function_call
         tool_name = fc.name
         tool_args = dict(fc.args)
 
@@ -96,4 +97,12 @@ async def chat(user_message: str, history: list) -> str:
             )
         )
 
-    return response.text
+    # Safely extract text — avoid crash if last part is still a function_call
+    try:
+        return response.text
+    except Exception:
+        # Extract text from parts manually
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'text') and part.text:
+                return part.text
+        return "I encountered an issue processing your request. Please try again."
