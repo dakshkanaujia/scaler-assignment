@@ -25,4 +25,4 @@ def get_retriever():
         embedding_function=embeddings
     )
     logger.info(f"Chroma DB loaded successfully from {abs_path}")
-    return vectorstore.as_retriever(search_kwargs={"k": 3})
+    return vectorstore.as_retriever(search_kwargs={"k": 6})
