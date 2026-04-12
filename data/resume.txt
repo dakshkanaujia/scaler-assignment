@@ -1,7 +1,0 @@
-# Daksh's Resume
-
-**Name**: Daksh
-**Role**: AI Developer
-**Experience**: 3 years of experience in building AI agents and RAG pipelines.
-**Skills**: Python, LangChain, Gemini, OpenAI, FastAPI, Streamlit.
-**Background**: Daksh is a passionate software engineer who loves to experiment with the latest AI technologies. He has worked on several projects involving natural language processing and computer vision.

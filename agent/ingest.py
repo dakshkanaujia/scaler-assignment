@@ -40,28 +40,31 @@ def ingest_data():
         print("GEMINI_API_KEY not found in environment.")
         return
 
-    data_path = os.getenv("RESUME_TEXT_PATH", "./data/resume.txt")
-    repos_path = os.getenv("GITHUB_REPOS_PATH", "./data/repos/")
+    data_dir = "./data/"
     chroma_db_dir = "./chroma_db/"
 
     documents = []
 
-    # Load resume
-    if os.path.exists(data_path):
-        if data_path.endswith(".txt"):
-            loader = TextLoader(data_path)
+    # Scan entire ./data/ directory recursively for supported file types
+    import glob
+    for filepath in glob.glob(os.path.join(data_dir, "**/*"), recursive=True):
+        if not os.path.isfile(filepath):
+            continue
+        if filepath.endswith(".pdf"):
+            print(f"Loading PDF: {filepath}")
+            loader = PyPDFLoader(filepath)
             documents.extend(loader.load())
-        elif data_path.endswith(".pdf"):
-            loader = PyPDFLoader(data_path)
+        elif filepath.endswith(".txt"):
+            print(f"Loading TXT: {filepath}")
+            loader = TextLoader(filepath, encoding="utf-8")
             documents.extend(loader.load())
-
-    # Load git repos (recursively find .md files)
-    if os.path.exists(repos_path):
-        loader = DirectoryLoader(repos_path, glob="**/*.md", loader_cls=TextLoader)
-        documents.extend(loader.load())
+        elif filepath.endswith(".md"):
+            print(f"Loading MD: {filepath}")
+            loader = TextLoader(filepath, encoding="utf-8")
+            documents.extend(loader.load())
 
     if not documents:
-        print("No documents found to ingest.")
+        print("No documents found to ingest. Make sure ./data/ contains .pdf, .txt, or .md files.")
         return
 
     # Split documents
