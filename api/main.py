@@ -3,6 +3,7 @@ import uuid
 import time
 import logging
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -46,73 +47,88 @@ async def startup_event():
 async def health():
     return {"status": "ok"}
 
-# --- Vapi-compatible OpenAI format endpoint ---
+# --- Unified Chat Endpoint (Handles both formats) ---
+@app.post("/chat")
 @app.post("/chat/completions")
-async def vapi_chat_completions(request: Request):
+async def unified_chat_endpoint(request: Request):
     """
-    Vapi Custom LLM endpoint — accepts OpenAI-compatible request,
-    returns OpenAI-compatible response.
+    Unified endpoint that detects whether the request is:
+    1. Simple format: {"message": "...", "history": [...]}
+    2. OpenAI format: {"messages": [...], "model": "..."}
     """
     try:
         body = await request.json()
-        logger.info(f"Vapi request received: model={body.get('model')}")
-
-        messages = body.get("messages", [])
-
-        # Extract the last user message
-        user_message = ""
-        history = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                continue  # We use our own system prompt
-            if role in ("user", "assistant"):
-                history.append({"role": role, "content": content or ""})
-
-        # The last user message is what we respond to
-        if history and history[-1]["role"] == "user":
-            user_message = history.pop()["content"]
+        
+        # Check if it's OpenAI format
+        if "messages" in body:
+            logger.info(f"OpenAI format request detected. Model: {body.get('model')}")
+            messages = body.get("messages", [])
+            
+            # Extract last user message and history
+            user_message = ""
+            history = []
+            for msg in messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "system":
+                    continue
+                if role in ("user", "assistant"):
+                    history.append({"role": role, "content": content or ""})
+            
+            if history and history[-1]["role"] == "user":
+                user_message = history.pop()["content"]
+            else:
+                user_message = "Hello"
+                
+            response_text = await chat(user_message, history)
+            
+            # Return OpenAI-compatible format
+            return {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": body.get("model", "gemini-2.5-flash"),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": response_text,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
+        
+        # Simple format (for Streamlit UI)
+        elif "message" in body:
+            logger.info("Simple format request detected.")
+            message = body.get("message")
+            history = body.get("history", [])
+            response_text = await chat(message, history)
+            return {"response": response_text}
+            
         else:
-            user_message = "Hello"
+            logger.warning(f"Unknown request format: {body}")
+            raise HTTPException(status_code=400, detail="Unknown request format. Expected 'messages' or 'message' field.")
 
-        response_text = await chat(user_message, history)
-
-        # Return OpenAI-compatible format
-        return {
-            "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": body.get("model", "gemini-2.5-flash"),
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": response_text,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
+    except Exception as e:
+        logger.error(f"Chat error: {e}", exc_info=True)
+        # Return OpenAI-compatible error if possible
+        error_response = {
+            "error": {
+                "message": str(e),
+                "type": "server_error",
+                "param": None,
+                "code": None
+            }
         }
-    except Exception as e:
-        logger.error(f"Vapi chat error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# --- Streamlit UI endpoint (unchanged) ---
-@app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    try:
-        response_text = await chat(request.message, request.history)
-        return ChatResponse(response=response_text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(status_code=500, content=error_response)
 
 if __name__ == "__main__":
     import uvicorn
