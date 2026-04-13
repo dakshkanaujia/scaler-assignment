@@ -58,6 +58,7 @@ async def unified_chat_endpoint(request: Request):
     """
     try:
         body = await request.json()
+        logger.info(f"RAW VAPI BODY: {body}")
         
         # Check if it's OpenAI format
         if "messages" in body:
@@ -69,7 +70,7 @@ async def unified_chat_endpoint(request: Request):
             history = []
             for msg in messages:
                 role = msg.get("role", "")
-                content = msg.get("content", "")
+                content = extract_content(msg.get("content", ""))
                 if role == "system":
                     continue
                 if role in ("user", "assistant"):
@@ -129,6 +130,17 @@ async def unified_chat_endpoint(request: Request):
             }
         }
         return JSONResponse(status_code=500, content=error_response)
+
+def extract_content(content):
+    """Handle both string and list content formats from Vapi"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content 
+            if isinstance(part, dict)
+        )
+    return str(content) if content else ""
 
 if __name__ == "__main__":
     import uvicorn
