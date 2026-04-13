@@ -127,7 +127,7 @@ async def unified_chat_endpoint(request: Request):
                 user_message = "Hello"
 
             response_text = await chat(user_message, history)
-            model_name = body.get("model", "gemini-1.5-flash")
+            model_name = body.get("model", "gemini-2.5-flash")
 
             # Check if client wants streaming
             if body.get("stream", False):
