@@ -38,19 +38,27 @@ TOOLS = [Tool(function_declarations=[check_availability_fn, book_slot_fn])]
 async def chat(user_message: str, history: list) -> str:
     owner_name = os.getenv("OWNER_NAME", "Daksh")
 
+    # Short-circuit for greetings — save Gemini quota
+    if user_message.lower().strip().rstrip("?.!") in ["hello", "hi", "hey", "hello"]:
+        return f"Hi! I'm {owner_name}'s AI representative. Feel free to ask me about his background, projects, or book a call!"
+
     # 1. Get RAG context
     try:
         retriever = get_retriever()
         if retriever:
-            docs = retriever.invoke(user_message)
-            context = "\n".join([doc.page_content for doc in docs])
-            logger.info(f"RAG retrieved {len(docs)} docs, context length: {len(context)} chars")
+            # Skip RAG for very short messages
+            if len(user_message.split()) < 4:
+                context = ""
+            else:
+                docs = retriever.invoke(user_message)
+                context = "\n".join([doc.page_content for doc in docs])
+                logger.info(f"RAG retrieved {len(docs)} docs, context length: {len(context)} chars")
         else:
-            logger.warning("RAG retriever returned None — chroma_db may be missing or failed to load")
             context = "No additional context available."
     except Exception as e:
         logger.error(f"RAG retrieval failed: {e}", exc_info=True)
         context = "No additional context available."
+
 
     # 2. Build system prompt
     system_prompt = f"""You are the AI representative of [Your Name], a software engineer. You speak in first person on their behalf. Answer ONLY using the provided context. Keep answers conversational and concise (2-3 sentences). If the context doesn't contain the answer, say "I don't have that detail handy" — never hallucinate.
