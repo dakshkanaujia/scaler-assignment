@@ -88,7 +88,7 @@ async def unified_chat_endpoint(request: Request):
                 "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
                 "object": "chat.completion",
                 "created": int(time.time()),
-                "model": body.get("model", "gemini-2.5-flash"),
+                "model": body.get("model", "gemini-1.5-flash"),
                 "choices": [
                     {
                         "index": 0,
